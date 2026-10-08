@@ -1,0 +1,1225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="description" content="Orbit the sun, slip through the gaps and outlast the day.">
+<meta name="theme-color" content="#c2457a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Duskward">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Duskward</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&display=swap">
+<style>
+/* Layout: one full-bleed canvas. The sky itself is the palette: it runs from dawn to midnight as you survive,
+   so the page commits to a single look and the canvas paints every colour. These tokens are the dusk frame. */
+:root{
+  --sky-centre:#ffc07a;
+  --sky-edge:#c2457a;
+  --ink:#2a0f2e;
+  --sun:#ff6a3d;
+  --font:"Unbounded",system-ui,"Segoe UI",sans-serif;
+}
+html,body{height:100%}
+body{margin:0;background:var(--sky-edge);color:var(--ink);overflow:hidden;touch-action:none;font-family:var(--font);user-select:none;-webkit-user-select:none}
+canvas{display:block;width:100%;height:100%;outline:none}
+canvas:focus-visible{box-shadow:inset 0 0 0 3px var(--sun)}
+.panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(360px,calc(100% - 32px));box-sizing:border-box;
+  padding:24px;border-radius:20px;background:var(--ink);color:var(--sky-centre);display:grid;gap:12px;user-select:text;-webkit-user-select:text;
+  box-shadow:0 20px 60px rgba(42,15,46,.45)}
+.panel[hidden]{display:none}
+.panel h2{margin:0;font-size:18px;font-weight:900;letter-spacing:.02em}
+.panel .set{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;font-size:14px;font-weight:700;cursor:pointer}
+.panel .set small{display:block;font-weight:400;font-size:11px;opacity:.75;margin-top:3px;line-height:1.4}
+.panel .set input[type=checkbox]{appearance:none;-webkit-appearance:none;flex:none;width:46px;height:28px;border-radius:999px;margin:0;
+  background:rgba(255,192,122,.25);position:relative;cursor:pointer;transition:background .15s}
+.panel .set input[type=checkbox]::before{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--sky-centre);transition:transform .15s}
+.panel .set input[type=checkbox]:checked{background:var(--sun)}
+.panel .set input[type=checkbox]:checked::before{transform:translateX(18px);background:#fff4e6}
+.panel .set input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
+.panel .set input[type=checkbox]:focus-visible{outline:2px solid var(--sky-centre);outline-offset:2px}
+.panel .howto{margin:0;padding:0;list-style:none;display:grid;gap:12px;max-height:min(52vh,420px);overflow-y:auto}
+.panel .howto li{display:grid;gap:3px;font-size:13px;line-height:1.45}
+.panel .howto b{font-size:13px;font-weight:700;color:#fff4e6}
+.panel .stack{display:grid;gap:10px}
+.panel .stack button{padding:13px 16px;font-size:14px}
+.panel hr{border:0;border-top:1px solid rgba(255,192,122,.2);margin:2px 0;width:100%}
+.panel .namerow{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-weight:700}
+.panel .namerow span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (prefers-reduced-motion: reduce){.panel .set input[type=checkbox],.panel .set input[type=checkbox]::before{transition:none}}
+.panel label{font-weight:700;font-size:15px;letter-spacing:.02em}
+.panel input{font:700 20px var(--font);padding:12px 14px;border-radius:12px;border:2px solid transparent;background:#fff4e6;color:var(--ink);text-transform:uppercase;min-width:0}
+.panel input:focus{outline:none;border-color:var(--sun)}
+.panel .hint{margin:0;font-size:12px;line-height:1.5;opacity:.8}
+.panel .err{margin:0;font-size:12px;color:#ffb3a1;min-height:1em}
+.panel .row{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.panel button{font:700 13px var(--font);padding:10px 16px;border-radius:999px;border:0;cursor:pointer}
+.panel button.primary{background:var(--sun);color:var(--ink)}
+.panel button.ghost{background:transparent;color:var(--sky-centre);box-shadow:inset 0 0 0 1.5px rgba(255,192,122,.5)}
+.panel button:focus-visible{outline:2px solid var(--sky-centre);outline-offset:2px}
+</style>
+</head>
+<body>
+
+
+<canvas id="c" tabindex="0" aria-label="Duskward game screen. Left and right arrows orbit the sun, space starts, L opens the leaderboard."></canvas>
+<form id="namebox" class="panel" hidden>
+  <label for="nameInput">Your name on the leaderboard</label>
+  <input id="nameInput" maxlength="12" autocomplete="nickname" spellcheck="false" placeholder="e.g. NICK">
+  <p class="hint">2 to 12 letters, numbers, spaces, - or _. Everyone can see it, so don't use your full real name.</p>
+  <p class="err" id="nameErr" role="alert"></p>
+  <div class="row"><button type="button" class="ghost" id="nameCancel">Not now</button><button type="submit" class="primary">Save name</button></div>
+</form>
+<form id="pause" class="panel" hidden aria-labelledby="pauseTitle">
+  <h2 id="pauseTitle">Paused</h2>
+  <p class="hint" id="pauseInfo"></p>
+  <div class="stack">
+    <button type="submit" class="primary">Resume</button>
+    <button type="button" class="ghost" id="pRestart">Restart</button>
+    <button type="button" class="ghost" id="pSettings">Settings</button>
+    <button type="button" class="ghost" id="pQuit">Quit to menu</button>
+  </div>
+</form>
+<form id="howto" class="panel" hidden aria-labelledby="howtoTitle">
+  <h2 id="howtoTitle">How to play</h2>
+  <ul class="howto">
+    <li><b>Orbit the sun</b><span id="howMove">Hold ← → or A / D to circle around the sun.</span></li>
+    <li><b>Slip through the gaps</b>Walls close in from the edges. Find the opening in each one. Your score is how long you survive.</li>
+    <li><b>Outlast the day</b>The sky runs from dawn to midnight. Each new time of day spins a little faster.</li>
+    <li><b>Charge your shield</b>Brush past the edge of a wall to fill the ring around your orbit. A full ring saves you from one hit.</li>
+    <li><b>Watch for solar flares</b>From about 20 seconds, walls burst out of the sun. A dashed outline shows where they'll be, so move to its gap.</li>
+    <li><b>The sun changes shape</b>It can become a pentagon or a square, and the walls change with it. Fewer sides means wider gaps but longer moves.</li>
+    <li><b>Pick a difficulty</b>Easy, Normal and Hard each have their own best times and leaderboard.</li>
+  </ul>
+  <p class="hint" id="tipsNote">Tips pop up the first time each of these happens.</p>
+  <div class="row"><button type="button" class="ghost" id="tipsReset">Show tips again</button><button type="submit" class="primary">Done</button></div>
+</form>
+<form id="settings" class="panel" hidden aria-labelledby="settingsTitle">
+  <h2 id="settingsTitle">Settings</h2>
+  <label class="set" for="setMusic"><span>Music</span><input type="checkbox" id="setMusic" role="switch"></label>
+  <label class="set" for="setSfx"><span>Sound effects</span><input type="checkbox" id="setSfx" role="switch"></label>
+  <label class="set" for="setVibrate"><span>Vibration<small id="vibrateNote">Buzzes on near-misses, shields and crashes</small></span><input type="checkbox" id="setVibrate" role="switch"></label>
+  <label class="set" for="setCalm"><span>Reduce flashing<small>Turns off screen flashes, shake and pulsing</small></span><input type="checkbox" id="setCalm" role="switch"></label>
+  <hr>
+  <div class="namerow"><span>Name: <span id="setName"></span></span><button type="button" class="ghost" id="setNameBtn">Change</button></div>
+  <div class="namerow"><span>How to play</span><button type="button" class="ghost" id="setHowBtn">Open</button></div>
+  <div class="namerow"><span id="resetLabel">Best times on this device</span><button type="button" class="ghost" id="resetBest">Reset</button></div>
+  <div class="row"><button type="submit" class="primary">Done</button></div>
+</form>
+
+<script>
+(() => {
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const FONT = '"Unbounded", system-ui, "Segoe UI", sans-serif';
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const canVibrate = typeof navigator.vibrate === 'function';
+const settings = { music: true, sfx: true, vibrate: true, calm: reduceMotion };
+try { Object.assign(settings, JSON.parse(localStorage.getItem('duskward-settings') || '{}')); } catch {}
+const saveSettings = () => { try { localStorage.setItem('duskward-settings', JSON.stringify(settings)); } catch {} };
+const calm = () => settings.calm;
+function buzz(ms) { if (settings.vibrate && canVibrate) { try { navigator.vibrate(ms); } catch {} } }
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+
+// ---------- online leaderboard (Supabase) ----------
+// Paste your project's URL and anon key here (Supabase: Project Settings → API). Leave blank to hide the leaderboard.
+const LEADERBOARD = { url: 'https://vtrfhqzzwwziblakhlik.supabase.co', key: 'sb_publishable_znyX0Pk0Zg0yP8SlmOUqlg_2sQUoSea' };
+const lbReady = !!(LEADERBOARD.url && LEADERBOARD.key);
+async function api(path, opts = {}) {
+  const res = await fetch(LEADERBOARD.url.replace(/\/$/, '') + '/rest/v1/' + path, {
+    ...opts,
+    // older 'anon' keys are JWTs and also go in Authorization; newer 'sb_publishable_' keys only go in apikey
+    headers: { apikey: LEADERBOARD.key, ...(LEADERBOARD.key.startsWith('eyJ') ? { Authorization: 'Bearer ' + LEADERBOARD.key } : {}),
+      'Content-Type': 'application/json', ...(opts.headers || {}) },
+  });
+  if (!res.ok) { let m = ''; try { m = (await res.json()).message || ''; } catch {} throw new Error(m || 'HTTP ' + res.status); }
+  return res;
+}
+const NAME_RE = /^[A-Za-z0-9 _-]{2,12}$/;
+let deviceId = store.get('duskward-device');
+if (!deviceId) {
+  deviceId = (crypto.randomUUID && crypto.randomUUID()) ||
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); });
+  store.set('duskward-device', deviceId);
+}
+let playerName = store.get('duskward-name') || '';
+const boards = {};                 // difficulty id -> rows | 'loading' | 'error'
+let lbStatus = '', pending = null, reportArm = null;
+const reported = new Set();
+
+async function loadBoard(diff) {
+  if (!lbReady || boards[diff] === 'loading') return;
+  boards[diff] = 'loading';
+  try {
+    const r = await api(`scores?select=id,name,time&difficulty=eq.${diff}&order=time.desc&limit=25`);
+    boards[diff] = await r.json();
+  } catch { boards[diff] = 'error'; }
+}
+async function submitScore(diff, time) {
+  if (!lbReady || !playerName) return;
+  lbStatus = 'Posting your time…';
+  try {
+    const r = await api('rpc/submit_score', { method: 'POST',
+      body: JSON.stringify({ p_device: deviceId, p_name: playerName, p_difficulty: diff, p_time: Math.round(time * 100) / 100 }) });
+    const rank = await r.json();
+    lbStatus = `On the board as ${playerName} · #${rank}`;
+    pending = null;
+    delete boards[diff];
+  } catch (e) {
+    if (/name/i.test(e.message)) { lbStatus = 'That name isn’t allowed. Pick another.'; playerName = ''; store.set('duskward-name', ''); }
+    else lbStatus = 'Couldn’t post your time. Check your connection.';
+  }
+}
+async function reportName(id) {
+  reported.add(id); reportArm = null;
+  try { await api('rpc/report_name', { method: 'POST', body: JSON.stringify({ p_id: id, p_device: deviceId }) }); } catch {}
+}
+
+// name entry box
+const nameBox = document.getElementById('namebox'), nameInput = document.getElementById('nameInput'), nameErr = document.getElementById('nameErr');
+let nameFrom = 'title', afterName = null;
+function openName(then = null) {
+  afterName = then;
+  nameFrom = state; state = 'name';
+  keys.clear(); pointers.clear();
+  nameInput.value = playerName; nameErr.textContent = '';
+  nameBox.hidden = false; nameInput.focus(); nameInput.select();
+}
+function closeName() {
+  nameBox.hidden = true; state = nameFrom; cv.focus({ preventScroll: true });
+  const next = afterName; afterName = null;
+  if (next) next();
+}
+nameBox.addEventListener('submit', e => {
+  e.preventDefault();
+  const v = nameInput.value.trim().replace(/\s+/g, ' ').toUpperCase();
+  if (!NAME_RE.test(v)) { nameErr.textContent = 'Use 2 to 12 letters, numbers, spaces, - or _.'; return; }
+  playerName = v; store.set('duskward-name', v);
+  closeName();
+  if (pending) submitScore(pending.diff, pending.time);
+});
+document.getElementById('nameCancel').addEventListener('click', closeName);
+nameBox.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closeName(); } e.stopPropagation(); });
+
+function openBoard() { boardFrom = state; state = 'board'; reportArm = null; loadBoard(D().id); sfx.click(); }
+function closeBoard() { state = boardFrom; reportArm = null; }
+let boardFrom = 'title';
+
+const isOverlay = () => state === 'board' || state === 'name' || state === 'settings' || state === 'howto' || state === 'paused';
+const underlying = () => state === 'board' ? boardFrom : state === 'name' ? nameFrom : state === 'settings' ? settingsFrom : state === 'howto' ? howFrom : state === 'paused' ? 'play' : state;
+const isTouch = () => matchMedia('(pointer: coarse)').matches;
+
+// first-time tips: each one shows once, during play, the first time its moment happens
+let tipsSeen = new Set();
+try { tipsSeen = new Set(JSON.parse(localStorage.getItem('duskward-tips') || '[]')); } catch {}
+const saveTips = () => store.set('duskward-tips', JSON.stringify([...tipsSeen]));
+let tipNow = null; const tipQueue = [];
+// a tip only counts as seen once it is actually on screen, so a crash never swallows a queued one
+// while a tip is on screen the game is paused; the player taps or presses Space to carry on
+const TIP_LOCK = 0.6;   // seconds before a tip can be dismissed, so a held key or tap can't skip it unread
+function showTip(item) {
+  tipNow = item;
+  if (item) { tipsSeen.add(item.id); saveTips(); keys.clear(); pointers.clear(); sfx.tip(); }
+}
+function tip(id, text) {
+  if (tipsSeen.has(id) || (tipNow && tipNow.id === id) || tipQueue.some(q => q.id === id)) return false;
+  const item = { id, text, age: 0 };
+  if (tipNow) tipQueue.push(item); else showTip(item);
+  return true;
+}
+function dismissTip() {
+  if (!tipNow || tipNow.age < TIP_LOCK) return;
+  keys.clear(); pointers.clear();
+  showTip(tipQueue.shift() || null);
+}
+
+// how to play panel
+const howBox = document.getElementById('howto');
+let howFrom = 'title';
+function openHowTo() {
+  howFrom = state; state = 'howto';
+  keys.clear(); pointers.clear();
+  document.getElementById('howMove').textContent = isTouch() ? 'Hold the left or right side of the screen to circle around the sun.' : 'Hold ← → or A / D to circle around the sun.';
+  document.getElementById('tipsNote').textContent = 'Tips pop up the first time each of these happens.';
+  howBox.hidden = false; howBox.querySelector('button.primary').focus();
+}
+function closeHowTo() { howBox.hidden = true; state = howFrom; cv.focus({ preventScroll: true }); }
+howBox.addEventListener('submit', e => { e.preventDefault(); closeHowTo(); });
+howBox.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closeHowTo(); } e.stopPropagation(); });
+document.getElementById('tipsReset').addEventListener('click', () => {
+  tipsSeen.clear(); saveTips();
+  document.getElementById('tipsNote').textContent = 'Done. You’ll see the tips again in your next games.';
+});
+
+// settings panel
+const setBox = document.getElementById('settings');
+const sw = { music: document.getElementById('setMusic'), sfx: document.getElementById('setSfx'), vibrate: document.getElementById('setVibrate'), calm: document.getElementById('setCalm') };
+const resetBtn = document.getElementById('resetBest'), resetLabel = document.getElementById('resetLabel');
+let settingsFrom = 'title', resetArmed = false;
+if (!canVibrate) {
+  sw.vibrate.disabled = true;
+  document.getElementById('vibrateNote').textContent = 'Not available in this browser. The app version will vibrate.';
+}
+function openSettings() {
+  settingsFrom = state; state = 'settings';
+  keys.clear(); pointers.clear();
+  for (const k in sw) sw[k].checked = !!settings[k] && !sw[k].disabled;
+  document.getElementById('setName').textContent = playerName || 'not set';
+  resetArmed = false; resetBtn.textContent = 'Reset'; resetLabel.textContent = 'Best times on this device';
+  setBox.hidden = false; sw.music.focus();
+}
+function closeSettings() {
+  setBox.hidden = true; state = settingsFrom;
+  if (state === 'paused') { pauseBox.hidden = false; pauseBox.querySelector('button.primary').focus(); }
+  else cv.focus({ preventScroll: true });
+}
+
+// pause: a button during play, P or Esc, and automatically when the player leaves the app
+const pauseBox = document.getElementById('pause');
+let countdown = 0, pauseRect = null;
+const inRun = () => state === 'play' || state === 'paused' || (state === 'settings' && settingsFrom === 'paused');
+function pauseGame() {
+  if (state !== 'play') return;
+  state = 'paused'; keys.clear(); pointers.clear();
+  if (A) A.c.suspend();
+  document.getElementById('pauseInfo').textContent = `${t.toFixed(2)} s · ${STAGES[stageIdx].name.toLowerCase()} · ${D().name.toLowerCase()}`;
+  pauseBox.hidden = false; pauseBox.querySelector('button.primary').focus();
+}
+function resumeGame() {
+  pauseBox.hidden = true; state = 'play'; countdown = 1.5;
+  keys.clear(); pointers.clear();
+  if (A) A.c.resume();
+  cv.focus({ preventScroll: true });
+}
+function leavePause() { pauseBox.hidden = true; if (A) A.c.resume(); }
+pauseBox.addEventListener('submit', e => { e.preventDefault(); resumeGame(); });
+pauseBox.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') { e.preventDefault(); resumeGame(); } e.stopPropagation(); });
+document.getElementById('pRestart').addEventListener('click', () => { leavePause(); state = 'title'; start(); });
+document.getElementById('pSettings').addEventListener('click', () => { pauseBox.hidden = true; openSettings(); });
+document.getElementById('pQuit').addEventListener('click', () => { leavePause(); stopMusic(); state = 'title'; walls = []; tipNow = null; cv.focus({ preventScroll: true }); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
+addEventListener('pagehide', pauseGame);
+for (const k in sw) sw[k].addEventListener('change', () => {
+  settings[k] = sw[k].checked; saveSettings();
+  ensureAudio(); applyVolumes();
+  if (k === 'sfx' && settings.sfx) sfx.click();
+  if (k === 'vibrate' && settings.vibrate) buzz(30);
+});
+document.getElementById('setNameBtn').addEventListener('click', () => { closeSettings(); openName(openSettings); });
+document.getElementById('setHowBtn').addEventListener('click', () => { closeSettings(); openHowTo(); });
+resetBtn.addEventListener('click', () => {
+  if (!resetArmed) { resetArmed = true; resetBtn.textContent = 'Yes, reset'; resetLabel.textContent = 'Clear all best times?'; return; }
+  for (const d of DIFFS) store.set('duskward-best-' + d.id, '0');
+  best = 0; resetArmed = false; resetBtn.textContent = 'Reset'; resetLabel.textContent = 'Best times cleared';
+});
+setBox.addEventListener('submit', e => { e.preventDefault(); closeSettings(); });
+setBox.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closeSettings(); } e.stopPropagation(); });
+
+const TAU = Math.PI * 2;
+const CENTER = 0.12, PR = 0.19, PSPEED = 9.5, TH = 0.06;
+
+// ---------- the day: each stage has its own sky ----------
+const STAGES = [
+  { at: 0,  name: 'DAWN'     },
+  { at: 10, name: 'MORNING'  },
+  { at: 20, name: 'NOON'     },
+  { at: 30, name: 'DUSK'     },
+  { at: 45, name: 'NIGHT'    },
+  { at: 60, name: 'MIDNIGHT' },
+];
+const SKIES = [
+  { c0: '#ffd9c2', c1: '#b9a3d6', wall: '#2f2350', sun: '#ff8a5c', ink: '#2f2350', night: 0 },
+  { c0: '#fff3d1', c1: '#8fc7e8', wall: '#173e5c', sun: '#ffb72e', ink: '#173e5c', night: 0 },
+  { c0: '#ffffff', c1: '#7ab8ea', wall: '#12324f', sun: '#ffcf33', ink: '#12324f', night: 0 },
+  { c0: '#ffc07a', c1: '#c2457a', wall: '#2a0f2e', sun: '#ff6a3d', ink: '#2a0f2e', night: 0 },
+  { c0: '#39407a', c1: '#10122e', wall: '#e6e9ff', sun: '#f4f1d0', ink: '#e6e9ff', night: 1 },
+  { c0: '#1a1440', c1: '#04040c', wall: '#b9a6ff', sun: '#ffffff', ink: '#e9e3ff', night: 1 },
+];
+const hex = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+const SK = SKIES.map(s => ({ c0: hex(s.c0), c1: hex(s.c1), wall: hex(s.wall), sun: hex(s.sun), ink: hex(s.ink), night: s.night }));
+const mix = (a, b, f) => a.map((x, i) => Math.round(x + (b[i] - x) * f));
+const rgb = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const smooth = f => f * f * (3 - 2 * f);
+function blendSky(A, B, f) {
+  f = smooth(Math.max(0, Math.min(1, f)));
+  return { c0: mix(A.c0, B.c0, f), c1: mix(A.c1, B.c1, f), wall: mix(A.wall, B.wall, f), sun: mix(A.sun, B.sun, f), ink: mix(A.ink, B.ink, f), night: A.night + (B.night - A.night) * f };
+}
+function skyNow() {
+  if (state === 'title' || underlying() === 'title') {
+    if (calm()) return SK[3];   // hold the dusk sky instead of drifting
+    // the title screen drifts through the whole day
+    const p = (performance.now() / 4000) % SK.length, i = Math.floor(p);
+    return blendSky(SK[i], SK[(i + 1) % SK.length], reduceMotion ? 0 : Math.max(0, (p - i - 0.6) / 0.4));
+  }
+  const i = stageIdx;
+  if (i === 0) return SK[0];
+  return blendSky(SK[i - 1], SK[i], (t - STAGES[i].at) / 3);
+}
+
+const SHAPE_NAMES = { 6: 'HEXAGON', 5: 'PENTAGON', 4: 'SQUARE' };
+let N = 6;
+const SIDE = () => TAU / N;
+const ALL = () => (1 << N) - 1;
+
+let W = 0, H = 0, R = 1, DPR = 1;
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  R = Math.min(W, H) / 2;
+}
+addEventListener('resize', resize);
+
+// ---------- difficulty ----------
+const DIFFS = [
+  // spin: how fast the sky turns at each stage of the day
+  // gentle: seconds of single walls that always have two openings
+  // unlock: when each harder wall pattern can start appearing (seconds)
+  // flipAt: when the spin starts changing direction; space: extra room between walls
+  { id: 'easy',   name: 'EASY',   squareAt: 50,   v0: 0.3,  vK: 0.006, vMax: 0.95, spin: [0.1, 0.3, 0.5, 0.7, 0.9, 1.1], flip: 7, flipAt: 20, twoGap: 0.8,  gentle: 15, space: 1.3, seg: 0.72, beat: 0.62,
+    unlock: { rings: 15, spiral: 30, double: 40 } },
+  { id: 'normal', name: 'NORMAL', squareAt: 35, v0: 0.48, vK: 0.011, vMax: 1.35, spin: [0.25, 0.6, 0.95, 1.3, 1.65, 2.0], flip: 4, flipAt: 10, twoGap: 0.45, gentle: 5, space: 1.0, seg: 0.52, beat: 0.52,
+    unlock: { rings: 6, spiral: 12, double: 18 } },
+  { id: 'hard',   name: 'HARD',   squareAt: 0,   v0: 0.62, vK: 0.015, vMax: 1.65, spin: [0.45, 1.0, 1.5, 2.0, 2.5, 3.0], flip: 3, flipAt: 8, twoGap: 0.25, gentle: 0, space: 0.9, seg: 0.46, beat: 0.45,
+    unlock: { rings: 3, spiral: 6, double: 6 } },
+];
+let diffIdx = Math.max(0, DIFFS.findIndex(d => d.id === (store.get('duskward-diff') || 'easy')));
+const D = () => DIFFS[diffIdx];
+const loadBest = () => parseFloat(store.get('duskward-best-' + D().id)) || 0;
+const saveBest = v => store.set('duskward-best-' + D().id, String(v));
+function setDiff(i) {
+  diffIdx = (i + DIFFS.length) % DIFFS.length;
+  best = loadBest();
+  store.set('duskward-diff', D().id);
+  reportArm = null;
+  if (state === 'board') loadBoard(D().id);
+  sfx.select(diffIdx);
+}
+
+// ---------- state ----------
+let state = 'title';
+let t = 0, best = loadBest(), newBest = false;
+let walls = [], particles = [];
+let pa = -Math.PI / 2 + TAU / 12, rot = 0, rotDir = 1, rotVel = 0, flipIn = 5;
+let stageIdx = 0, banner = null, deadTimer = 0, flash = 0, shake = 0, beatT = 0, beatN = 0, pulse = 0, morph = 0;
+let charge = 0, shieldT = 0, readyFlash = 0;
+let run = { grazes: 0, shields: 0, flares: 0, shapes: 0 }, prevBest = 0;
+let evIn = 0, eventsDone = 0, evPending = null, bloomQueue = [], tele = 0, teleMask = 0, resumeAt = 0;
+let buttons = [];
+
+const speed    = () => Math.min(D().vMax, D().v0 + t * D().vK);
+const rotSpeed = () => D().spin[stageIdx];
+const step     = () => Math.max(0.24, speed() * 0.45) * D().space * (6 / N);   // squares get 50% more room, pentagons 20%
+const spawnR   = () => Math.hypot(W, H) / (2 * R) + 0.15;
+const rndN     = () => (Math.random() * N) | 0;
+
+function farEdgeIn() { let m = -1; for (const w of walls) if (!w.out) m = Math.max(m, w.d + w.t); return m; }
+
+function addPattern(base) {
+  const s = step(), k = rndN(), all = ALL(), u = D().unlock;
+  // pick from the patterns this difficulty has unlocked so far
+  const pool = [['single', 0.34]];
+  if (t >= u.rings) pool.push(['rings', 0.22]);
+  if (t >= u.spiral && N > 4) pool.push(['spiral', 0.22]);
+  if (t >= u.double) pool.push(['double', 0.22]);
+  let r = Math.random() * pool.reduce((a, [, w]) => a + w, 0), kind = 'single';
+  for (const [name, w] of pool) { if ((r -= w) <= 0) { kind = name; break; } }
+  const P = [];
+  if (kind === 'single') {
+    let mask = all & ~(1 << k);
+    if (t < D().gentle || Math.random() < (N === 4 ? Math.max(D().twoGap, 0.6) : D().twoGap)) mask &= ~(1 << ((k + 2 + ((Math.random() * (N - 3)) | 0)) % N));
+    P.push([0, mask]);
+  } else if (kind === 'rings') {
+    const n = 3 + ((Math.random() * 2) | 0), even = N - (N % 2);
+    for (let i = 0; i < n; i++) {
+      let mask = 0;
+      for (let j = 0; j < even; j++) if (j % 2 === i % 2) mask |= 1 << ((j + k) % N);
+      P.push([i * 0.85, mask]);
+    }
+  } else if (kind === 'spiral') {
+    const dir = Math.random() < 0.5 ? 1 : -1, half = Math.floor(N / 2);
+    for (let i = 0; i < 9; i++) {
+      const a = ((k + i * dir) % N + N) % N;
+      P.push([i * D().seg, (1 << a) | (1 << ((a + half) % N))]);
+    }
+  } else {
+    P.push([0, all & ~(1 << k)]);
+    P.push([1.7, all & ~(1 << ((k + (N === 4 ? 1 : Math.floor(N / 2))) % N))]);
+  }
+  for (const [off, mask] of P) walls.push({ d: base + off * s, t: TH, mask });
+}
+
+const norm = a => ((a % TAU) + TAU) % TAU;
+const sectorOf = a => Math.floor(norm(a) / SIDE()) % N;
+function wallHits(w, a) {
+  const sec = sectorOf(a);
+  if (!((w.mask >> sec) & 1)) return false;
+  const S = SIDE(), local = norm(a) - sec * S;
+  const f = Math.cos(S / 2) / Math.cos(local - S / 2);
+  return w.d * f <= PR + 0.012 && (w.d + w.t) * f >= PR - 0.012;
+}
+const blockedAt = a => walls.some(w => wallHits(w, a));
+
+function start() {
+  ensureAudio();
+  if (!playerName && !store.get('duskward-asked')) { store.set('duskward-asked', '1'); openName(start); return; }
+  tipNow = null; tipQueue.length = 0;
+  tip('move', (isTouch() ? 'Hold the left or right side of the screen to orbit the sun.' : 'Hold ← → or A / D to orbit the sun.') +
+    ' Slip through the gaps in the walls. Your score is how long you survive.');
+  state = 'play'; t = 0; walls = []; particles = []; N = 6;
+  rotDir = Math.random() < 0.5 ? 1 : -1; rotVel = 0; flipIn = 5;
+  stageIdx = 0; banner = { text: STAGES[0].name, life: 1.6 }; newBest = false;
+  pending = null; lbStatus = '';
+  beatT = 0; beatN = 0; charge = 0; shieldT = 0; readyFlash = 0;
+  evIn = 0; eventsDone = 0; evPending = null; bloomQueue = []; tele = 0; resumeAt = 0;
+  run = { grazes: 0, shields: 0, flares: 0, shapes: 0 };
+  stopMusic(); applyVolumes();
+  addPattern(spawnR());
+}
+
+function die() {
+  state = 'dead'; deadTimer = 0.7; flash = calm() ? 0 : 1; shake = calm() ? 0 : 1;
+  buzz([60, 40, 90]);
+  prevBest = best;
+  if (t > best) { best = t; newBest = true; saveBest(best); }
+  lbStatus = '';
+  if (lbReady && t >= 3) {
+    pending = { diff: D().id, time: t };
+    if (playerName) submitScore(pending.diff, pending.time);
+    else lbStatus = 'Add your name to put this time on the leaderboard';
+  }
+  sfx.death();
+  stopMusic();
+}
+
+function sparks(n, spread) {
+  const x = Math.cos(pa) * PR, y = Math.sin(pa) * PR;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * TAU, v = (0.15 + Math.random() * 0.35) * spread;
+    particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.35 + Math.random() * 0.3 });
+  }
+}
+
+// ---------- input ----------
+const keys = new Set();
+const pointers = new Map();
+function inputDir() {
+  let d = 0;
+  if (keys.has('L')) d -= 1;
+  if (keys.has('R')) d += 1;
+  for (const side of pointers.values()) d += side;
+  return Math.max(-1, Math.min(1, d));
+}
+const inMenu = () => state === 'title' || (state === 'dead' && deadTimer <= 0);
+addEventListener('keydown', e => {
+  const k = e.key;
+  const left = k === 'ArrowLeft' || k === 'a' || k === 'A';
+  const right = k === 'ArrowRight' || k === 'd' || k === 'D';
+  if (left || right || k === ' ') e.preventDefault();
+  if (state === 'name' || state === 'settings' || state === 'howto' || state === 'paused') return;
+  if (k === 'm' || k === 'M') { const on = !(settings.music || settings.sfx); settings.music = settings.sfx = on; saveSettings(); applyVolumes(); return; }
+  if (state === 'play') {
+    if (k === 'Escape' || k === 'p' || k === 'P') { e.preventDefault(); pauseGame(); return; }
+    if (tipNow) { if (k === ' ' || k === 'Enter') dismissTip(); return; }
+    if (left) keys.add('L'); if (right) keys.add('R'); return;
+  }
+  if (state === 'board') {
+    if (left && !e.repeat) setDiff(diffIdx - 1);
+    else if (right && !e.repeat) setDiff(diffIdx + 1);
+    else if (k === 'Escape' || k === 'l' || k === 'L' || k === ' ' || k === 'Enter') closeBoard();
+    return;
+  }
+  if (!inMenu()) return;
+  if (left && !e.repeat) setDiff(diffIdx - 1);
+  else if (right && !e.repeat) setDiff(diffIdx + 1);
+  else if (k === '1' || k === '2' || k === '3') setDiff(+k - 1);
+  else if (k === 'l' || k === 'L') openBoard();
+  else if (k === 'n' || k === 'N') { e.preventDefault(); openName(); }
+  else if (k === 's' || k === 'S') { e.preventDefault(); openSettings(); }
+  else if (k === 'h' || k === 'H') { e.preventDefault(); openHowTo(); }
+  else if (k === ' ' || k === 'Enter') start();
+});
+addEventListener('keyup', e => {
+  const k = e.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.delete('L');
+  if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.delete('R');
+});
+addEventListener('blur', () => { keys.clear(); pointers.clear(); pauseGame(); });
+cv.addEventListener('pointerdown', e => {
+  if (state === 'name' || state === 'settings' || state === 'howto' || state === 'paused') return;
+  cv.focus(); ensureAudio();
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  if (state === 'play') {
+    if (pauseRect && x >= pauseRect.x && x <= pauseRect.x + pauseRect.w && y >= pauseRect.y && y <= pauseRect.y + pauseRect.h) { pauseGame(); return; }
+    if (tipNow) { dismissTip(); return; }
+    pointers.set(e.pointerId, x < W / 2 ? -1 : 1); cv.setPointerCapture?.(e.pointerId); return;
+  }
+  const hit = buttons.find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+  if (hit) { hit.act(); return; }
+  if (state === 'board') { if (reportArm) reportArm = null; else closeBoard(); return; }
+  if (inMenu()) start();
+});
+cv.addEventListener('pointermove', e => {
+  if (pointers.has(e.pointerId)) { const r = cv.getBoundingClientRect(); pointers.set(e.pointerId, e.clientX - r.left < W / 2 ? -1 : 1); }
+});
+const lift = e => pointers.delete(e.pointerId);
+cv.addEventListener('pointerup', lift); cv.addEventListener('pointercancel', lift);
+
+// ---------- audio: a small synth with separate music and effects channels ----------
+let actx = null, A = null;
+const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+function ensureAudio() {
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { actx = null; return; }
+  const c = actx;
+  const comp = c.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.2;
+  const master = c.createGain(); master.gain.value = 0.85;
+  comp.connect(master); master.connect(c.destination);
+  const music = c.createGain(), sfxBus = c.createGain();
+  music.connect(comp); sfxBus.connect(comp);
+  // room reverb from a generated impulse
+  const rev = c.createConvolver();
+  const len = Math.floor(c.sampleRate * 2.2), ir = c.createBuffer(2, len, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+  rev.buffer = ir;
+  const revMusic = c.createGain(), revSfx = c.createGain();
+  revMusic.gain.value = 0.32; revSfx.gain.value = 0.22;
+  rev.connect(revMusic); revMusic.connect(music);
+  const revSfxIn = c.createConvolver(); revSfxIn.buffer = ir; revSfxIn.connect(revSfx); revSfx.connect(sfxBus);
+  // echo for the lead line
+  const delay = c.createDelay(1.5), fb = c.createGain(), dOut = c.createGain();
+  fb.gain.value = 0.33; dOut.gain.value = 0.3;
+  delay.connect(fb); fb.connect(delay); delay.connect(dOut); dOut.connect(music);
+  const noise = c.createBuffer(1, c.sampleRate, c.sampleRate);
+  { const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  const crunch = c.createWaveShaper();
+  { const n = 1024, curve = new Float32Array(n); for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; curve[i] = Math.tanh(x * 4); } crunch.curve = curve; }
+  crunch.connect(sfxBus);
+  A = { c, music, sfx: sfxBus, rev, revSfx: revSfxIn, delay, noise, crunch };
+  applyVolumes();
+}
+function applyVolumes() {
+  if (!A) return;
+  const now = A.c.currentTime;
+  A.music.gain.setTargetAtTime(settings.music ? 0.5 : 0, now, 0.04);
+  A.sfx.gain.setTargetAtTime(settings.sfx ? 0.9 : 0, now, 0.02);
+}
+// building blocks
+function osc(type, f0, when, dur, { f1, gain = 0.2, attack = 0.005, dest, detune = 0, filter, send } = {}) {
+  const c = A.c, o = c.createOscillator(), g = c.createGain();
+  o.type = type; o.detune.value = detune;
+  o.frequency.setValueAtTime(f0, when);
+  if (f1) o.frequency.exponentialRampToValueAtTime(f1, when + dur);
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.exponentialRampToValueAtTime(gain, when + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  let node = o;
+  if (filter) {
+    const fl = c.createBiquadFilter(); fl.type = filter.type || 'lowpass'; fl.Q.value = filter.q || 0.8;
+    fl.frequency.setValueAtTime(filter.f0, when);
+    if (filter.f1) fl.frequency.exponentialRampToValueAtTime(filter.f1, when + (filter.t || dur));
+    node.connect(fl); node = fl;
+  }
+  node.connect(g); g.connect(dest);
+  if (send) { const sg = c.createGain(); sg.gain.value = send.amount; g.connect(sg); sg.connect(send.to); }
+  o.start(when); o.stop(when + dur + 0.05);
+}
+function noiseHit(when, dur, { gain = 0.3, type = 'bandpass', f0 = 2000, f1, q = 0.8, dest, attack = 0.002, send } = {}) {
+  const c = A.c, src = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain();
+  src.buffer = A.noise; src.loop = true;
+  fl.type = type; fl.Q.value = q; fl.frequency.setValueAtTime(f0, when);
+  if (f1) fl.frequency.exponentialRampToValueAtTime(f1, when + dur);
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.exponentialRampToValueAtTime(gain, when + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  src.connect(fl); fl.connect(g); g.connect(dest);
+  if (send) { const sg = A.c.createGain(); sg.gain.value = send.amount; g.connect(sg); sg.connect(send.to); }
+  src.start(when, Math.random() * 0.5); src.stop(when + dur + 0.05);
+}
+
+// ---------- music: an original piece that builds through the day ----------
+const CHORD = { maj: [0, 4, 7], min: [0, 3, 7], maj7: [0, 4, 7, 11], min7: [0, 3, 7, 10], sus2: [0, 2, 7] };
+// each time of day: four chords (one per bar of 8 steps), which layers play, and their patterns
+const SONG = [
+  { prog: [[53, 'maj7'], [48, 'sus2'], [55, 'maj'], [57, 'min7']], pad: 1, bass: 0, lead: [0, -1, 2, -1, -1, 1, -1, -1], hat: 0, kick: [], snare: [] },
+  { prog: [[48, 'maj'], [55, 'maj'], [57, 'min'], [53, 'maj7']],   pad: 1, bass: [0, 3, 4, 6], lead: [0, -1, 1, -1, 2, -1, 1, -1], hat: 1, kick: [], snare: [] },
+  { prog: [[50, 'maj'], [57, 'maj'], [59, 'min'], [55, 'maj']],    pad: 1, bass: [0, 3, 4, 6], lead: [0, 1, 2, 1, 3, 2, 1, 2], hat: 1, kick: [0, 4], snare: [] },
+  { prog: [[57, 'min'], [53, 'maj'], [48, 'maj'], [55, 'maj']],    pad: 1, bass: [0, 2, 3, 4, 6], lead: [2, -1, 1, 2, 3, -1, 2, 1], hat: 1, kick: [0, 3, 4], snare: [2, 6] },
+  { prog: [[50, 'min7'], [46, 'maj7'], [53, 'maj'], [48, 'sus2']], pad: 1, bass: [0, 3, 4, 6, 7], lead: [0, 2, 1, 3, 0, 2, 1, -1], hat: 2, kick: [0, 3, 4], snare: [2, 6] },
+  { prog: [[52, 'min'], [48, 'maj'], [55, 'maj'], [50, 'maj']],    pad: 1, bass: [0, 1, 3, 4, 6, 7], lead: [0, 1, 2, 3, 2, 1, 3, 2], hat: 2, kick: [0, 2, 4, 6], snare: [2, 6] },
+];
+let nextStep = 0, stepN = 0;
+const pulseTimes = [];
+function stepLen() { return Math.max(0.15, (D().beat - stageIdx * 0.03) / 2); }
+function playStep(when, n, stage) {
+  const part = SONG[stage], bar = Math.floor(n / 8) % 4, i = n % 8, sl = stepLen();
+  const [root, q] = part.prog[bar], tones = CHORD[q];
+  const M = A.music;
+  if (part.pad && i === 0) {
+    for (const iv of tones) for (const dt of [-8, 8])
+      osc('sawtooth', midi(root + 12 + iv), when, sl * 8.4, { gain: 0.022, attack: sl * 1.5, dest: M, detune: dt, filter: { f0: 900 + stage * 120, q: 0.5 }, send: { to: A.rev, amount: 0.9 } });
+  }
+  if (part.bass && part.bass.includes(i)) {
+    const f = midi(root - 12 + (i === 6 && stage >= 2 ? 12 : 0));
+    osc('sawtooth', f, when, sl * 0.9, { gain: 0.16, dest: M, filter: { f0: 1600, f1: 280, t: sl * 0.6, q: 4 } });
+    osc('sine', f / 2, when, sl * 0.9, { gain: 0.18, dest: M });
+  }
+  if (part.lead[i] >= 0) {
+    const idx = part.lead[i], note = root + 24 + tones[idx % tones.length] + (idx >= tones.length ? 12 : 0);
+    const g = stage < 2 ? 0.05 : 0.065;
+    osc('square', midi(note), when, sl * 1.4, { gain: g, dest: M, filter: { f0: 3200, f1: 1400, q: 1 }, send: { to: A.delay, amount: 0.7 } });
+    osc('triangle', midi(note), when, sl * 1.6, { gain: g * 0.8, dest: M, detune: 6, send: { to: A.rev, amount: 0.5 } });
+  }
+  if (part.hat) {
+    const open = part.hat === 2 && i === 7;
+    noiseHit(when, open ? 0.2 : 0.045, { gain: i % 2 ? 0.07 : 0.11, type: 'highpass', f0: 7500, dest: M });
+    if (part.hat === 2 && i % 2 === 1 && !open) noiseHit(when + sl / 2, 0.035, { gain: 0.05, type: 'highpass', f0: 8000, dest: M });
+  }
+  if (part.kick.includes(i)) {
+    osc('sine', 150, when, 0.38, { f1: 42, gain: 0.85, dest: M });
+    noiseHit(when, 0.02, { gain: 0.15, type: 'highpass', f0: 3000, dest: M });
+  }
+  if (part.snare.includes(i)) {
+    noiseHit(when, 0.2, { gain: 0.32, f0: 1900, q: 0.7, dest: M, send: { to: A.rev, amount: 0.4 } });
+    osc('triangle', 190, when, 0.11, { f1: 140, gain: 0.22, dest: M });
+  }
+  if (i % 2 === 0 && stage >= 2) pulseTimes.push(when);
+}
+function runMusic() {
+  if (!A || A.c.state !== 'running') return;
+  const now = A.c.currentTime;
+  if (nextStep < now) nextStep = now + 0.05;
+  while (nextStep < now + 0.12) { playStep(nextStep, stepN++, stageIdx); nextStep += stepLen(); }
+  while (pulseTimes.length && pulseTimes[0] <= now) { pulseTimes.shift(); pulse = 1; }
+}
+function stopMusic() {
+  nextStep = 0; stepN = 0; pulseTimes.length = 0;
+  if (!A) return;
+  const now = A.c.currentTime;
+  A.music.gain.cancelScheduledValues(now);
+  A.music.gain.setTargetAtTime(0, now, 0.06);
+}
+
+// ---------- sound effects ----------
+const sfx = {
+  on() { return A && settings.sfx; },
+  click() { if (!this.on()) return; const w = A.c.currentTime; osc('triangle', 1400, w, 0.06, { f1: 900, gain: 0.18, dest: A.sfx }); },
+  select(i) { if (!this.on()) return; const w = A.c.currentTime; osc('triangle', midi(72 + i * 4), w, 0.12, { gain: 0.2, dest: A.sfx, send: { to: A.revSfx, amount: 0.3 } }); },
+  tip() { if (!this.on()) return; const w = A.c.currentTime;
+    osc('sine', midi(84), w, 0.5, { gain: 0.16, dest: A.sfx, send: { to: A.revSfx, amount: 0.6 } });
+    osc('sine', midi(91), w + 0.09, 0.6, { gain: 0.13, dest: A.sfx, send: { to: A.revSfx, amount: 0.6 } }); },
+  graze(level) { if (!this.on()) return; const w = A.c.currentTime, f = 1500 * (1 + level * 0.6);
+    osc('sine', f, w, 0.09, { f1: f * 1.3, gain: 0.22, dest: A.sfx });
+    osc('triangle', f * 2.01, w, 0.05, { gain: 0.08, dest: A.sfx });
+    noiseHit(w, 0.05, { gain: 0.12, type: 'highpass', f0: 6000, dest: A.sfx }); },
+  ready() { if (!this.on()) return; const w = A.c.currentTime;
+    [76, 80, 83, 88].forEach((n, i) => osc('square', midi(n), w + i * 0.065, 0.22, { gain: 0.08, dest: A.sfx, filter: { f0: 4000, q: 0.7 }, send: { to: A.revSfx, amount: 0.6 } })); },
+  shield() { if (!this.on()) return; const w = A.c.currentTime;
+    noiseHit(w, 0.45, { gain: 0.5, f0: 400, f1: 5000, q: 1.2, dest: A.sfx, send: { to: A.revSfx, amount: 0.5 } });
+    osc('sine', 110, w, 0.35, { f1: 45, gain: 0.7, dest: A.sfx });
+    osc('triangle', midi(79), w + 0.05, 0.7, { gain: 0.18, dest: A.sfx, send: { to: A.revSfx, amount: 0.8 } }); },
+  death() { if (!A) return; const w = A.c.currentTime; if (!settings.sfx) return;
+    noiseHit(w, 0.8, { gain: 0.7, type: 'lowpass', f0: 7000, f1: 180, q: 0.5, dest: A.sfx, send: { to: A.revSfx, amount: 0.5 } });
+    osc('sine', 150, w, 0.8, { f1: 28, gain: 0.9, dest: A.sfx });
+    osc('square', 95, w, 0.45, { f1: 30, gain: 0.35, dest: A.crunch }); },
+  stage() { if (!this.on()) return; const w = A.c.currentTime, root = SONG[stageIdx].prog[0][0] + 24;
+    for (const [n, d] of [[root, 0], [root + 7, 0.12]]) for (const [m, g] of [[1, 0.2], [2.76, 0.06], [5.4, 0.03]])
+      osc('sine', midi(n) * m, w + d, 1.4 / m, { gain: g, dest: A.sfx, send: { to: A.revSfx, amount: 0.7 } }); },
+  shape() { if (!this.on()) return; const w = A.c.currentTime;
+    osc('sawtooth', 220, w, 0.5, { f1: 110, gain: 0.25, dest: A.sfx, filter: { f0: 3000, f1: 300, q: 6 } });
+    osc('sine', midi(88), w + 0.1, 0.6, { gain: 0.12, dest: A.sfx, send: { to: A.revSfx, amount: 0.7 } }); },
+  flareWarn(dur) { if (!this.on()) return; const w = A.c.currentTime;
+    noiseHit(w, dur, { gain: 0.3, f0: 250, f1: 3500, q: 2, attack: dur * 0.8, dest: A.sfx });
+    osc('sawtooth', 110, w, dur, { f1: 440, gain: 0.12, attack: dur * 0.8, dest: A.sfx, filter: { f0: 600, f1: 3000, q: 3 } }); },
+  flareBurst() { if (!this.on()) return; const w = A.c.currentTime;
+    osc('sine', 130, w, 0.45, { f1: 38, gain: 0.8, dest: A.sfx });
+    noiseHit(w, 0.35, { gain: 0.45, type: 'lowpass', f0: 5000, f1: 400, dest: A.sfx, send: { to: A.revSfx, amount: 0.4 } }); },
+};
+
+// ---------- update ----------
+function update(dt) {
+  flash = Math.max(0, flash - dt * 2.5);
+  shake = Math.max(0, shake - dt * 2);
+  pulse = Math.max(0, pulse - dt * 4);
+  morph = Math.max(0, morph - dt * 2.5);
+  readyFlash = Math.max(0, readyFlash - dt);
+  shieldT = Math.max(0, shieldT - dt);
+  if (banner) { banner.life -= dt; if (banner.life <= 0) banner = null; }
+  for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
+  particles = particles.filter(p => p.life > 0);
+
+  if (state === 'paused' || (isOverlay() && underlying() === 'paused') || (state === 'settings' && settingsFrom === 'paused')) return;
+  if (state !== 'play') {
+    rot += 0.2 * dt;
+    if (state === 'dead') { deadTimer -= dt; for (const w of walls) w.d += dt * 0.6; }
+    else if (isOverlay()) { if (underlying() === 'dead') return; }
+    else {
+      for (const w of walls) w.d -= dt * 0.35;
+      walls = walls.filter(w => w.d + w.t > CENTER);
+      if (walls.length === 0 || farEdgeIn() < spawnR() - 0.45) walls.push({ d: spawnR(), t: TH, mask: ALL() & ~(1 << rndN()) });
+    }
+    return;
+  }
+
+  if (countdown > 0) { countdown -= dt; return; }
+  if (tipNow) { tipNow.age += dt; return; }
+  t += dt;
+  while (stageIdx + 1 < STAGES.length && t >= STAGES[stageIdx + 1].at) {
+    stageIdx++;
+    banner = { text: STAGES[stageIdx].name, life: 1.8 };
+    tip('stages', `It's ${STAGES[stageIdx].name.toLowerCase()}. Each new time of day spins a little faster.`);
+    sfx.stage();
+  }
+
+  if (A) runMusic();
+  else {   // no audio available: keep the visual beat going on its own
+    const beatLen = Math.max(0.3, D().beat - stageIdx * 0.03);
+    beatT += dt;
+    if (beatT >= beatLen) { beatT -= beatLen; if (stageIdx >= 2) pulse = 1; }
+  }
+
+  flipIn -= dt;
+  if (flipIn <= 0 && t > D().flipAt) { rotDir *= -1; flipIn = D().flip + Math.random() * 4; }
+  rotVel += (rotSpeed() * rotDir - rotVel) * Math.min(1, dt * 1.8);
+  rot += rotVel * dt;
+
+  // events: the sun changes shape, or flares outward
+  const FIRST_FLARE = 20;   // seconds: the first event is always a solar flare, landing here on every difficulty
+  if (!evPending && eventsDone === 0) {
+    // stop sending walls just early enough that the ones in flight clear before the flare fires
+    const clearIn = Math.max(0, farEdgeIn() - CENTER * 0.6) / speed();
+    if (t + clearIn + 1.2 >= FIRST_FLARE) { evPending = 'flare'; eventsDone = 1; }
+  } else if (!evPending && t >= FIRST_FLARE) {
+    evIn -= dt;
+    if (evIn <= 0) { evPending = Math.random() < 0.5 ? 'flare' : 'shape'; eventsDone++; }
+  }
+
+  const v = speed();
+  for (const w of walls) w.d += (w.out ? v * 0.9 : -v) * dt;
+  walls = walls.filter(w => w.out ? w.d < spawnR() : w.d + w.t > CENTER * 0.6);
+
+  if (evPending === 'shape' && walls.length === 0) {
+    const options = [6, 5, 4].filter(n => n !== N && (n !== 4 || t >= D().squareAt));
+    N = options[(Math.random() * options.length) | 0];
+    evPending = null; evIn = 10 + Math.random() * 4; morph = 1;
+    banner = { text: SHAPE_NAMES[N], life: 1.4 };
+    run.shapes++;
+    tip('shape', `The sun is now a ${SHAPE_NAMES[N].toLowerCase()}. The walls change shape with it.`);
+    sfx.shape();
+    addPattern(spawnR() + 0.3);
+  } else if (evPending === 'flare' && walls.length === 0 && bloomQueue.length === 0) {
+    const k = rndN();
+    bloomQueue = [ALL() & ~(1 << k), ALL() & ~(1 << ((k + Math.floor(N / 2)) % N))];
+    teleMask = bloomQueue[0]; tele = 1.2;
+    // first flare: explain it and give extra time to read and move
+    if (tip('flare', 'Solar flare! Walls burst out of the sun. Move to the gap in the dashed outline.')) tele = 1.8;
+    banner = { text: 'SOLAR FLARE', life: 1.2 };
+    sfx.flareWarn(tele);
+  }
+  if (bloomQueue.length) {
+    tele -= dt;
+    if (tele <= 0) {
+      walls.push({ d: CENTER, t: TH, mask: bloomQueue.shift(), out: true, lastOfFlare: bloomQueue.length === 0 });
+      sfx.flareBurst();
+      if (bloomQueue.length) { teleMask = bloomQueue[0]; tele = 0.9; }
+      else { evPending = null; evIn = 10 + Math.random() * 4; resumeAt = t + 0.8; }
+    }
+  } else if (!evPending && t >= resumeAt && (farEdgeIn() < 0 || farEdgeIn() < spawnR() - step())) {
+    addPattern(spawnR());
+  }
+
+  const prev = pa, dir = inputDir();
+  if (dir) {
+    const next = pa + dir * PSPEED * dt;
+    if (shieldT <= 0 && blockedAt(next) && !blockedAt(prev)) pa = prev; else pa = next;
+  }
+
+  // brushing past a wall builds charge; a full charge saves you from one hit
+  for (const w of walls) {
+    if (w.judged) continue;
+    if (w.d <= PR + 0.012 && w.d + w.t >= PR - 0.012) {
+      w.judged = true;
+      if (!wallHits(w, pa) && [0.17, -0.17].some(o => (w.mask >> sectorOf(pa + o)) & 1)) {
+        const was = charge;
+        charge = Math.min(1, charge + 0.2);
+        run.grazes++;
+        tip('graze', 'Near miss! Brushing past walls fills your shield ring.');
+        sparks(6, 1);
+        buzz(8);
+        sfx.graze(charge);
+        if (was < 1 && charge >= 1) { tip('ready', 'Shield ready. It will save you from one hit.'); readyFlash = 1.4; sfx.ready(); }
+      }
+    }
+  }
+
+  for (const w of walls) if (w.lastOfFlare && !w.counted && w.d > PR + 0.08) { w.counted = true; run.flares++; }
+
+  if (shieldT <= 0 && blockedAt(pa)) {
+    if (charge >= 1) {
+      tip('used', 'Saved by your shield! Brush past more walls to charge it again.');
+      run.shields++;
+      charge = 0; shieldT = 1.0; flash = calm() ? 0 : 0.5;
+      buzz(35);
+      sparks(24, 2.2);
+      sfx.shield();
+    } else die();
+  }
+}
+
+// ---------- draw ----------
+const polyPoint = (i, r) => { const a = i * SIDE(); return [Math.cos(a) * r, Math.sin(a) * r]; };
+
+function button(sky, label, cx, cy, fs, on, act) {
+  ctx.font = `700 ${fs}px ${FONT}`;
+  const bw = ctx.measureText(label).width + fs * 1.6, bh = fs * 2.3;
+  const bx = cx - bw / 2, by = cy - bh / 2;
+  buttons.push({ x: bx, y: by, w: bw, h: bh, act });
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, bw, bh, bh / 2) : ctx.rect(bx, by, bw, bh);
+  if (on) { ctx.fillStyle = rgb(sky.ink); ctx.fill(); ctx.fillStyle = rgb(sky.c0); }
+  else { ctx.strokeStyle = rgb(sky.ink, 0.45); ctx.lineWidth = 1.5; ctx.stroke(); ctx.fillStyle = rgb(sky.ink, 0.75); }
+  ctx.fillText(label, cx, cy + 1);
+}
+
+function draw() {
+  const sky = skyNow();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  const g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.hypot(W, H) / 2);
+  g.addColorStop(0, rgb(sky.c0)); g.addColorStop(1, rgb(sky.c1));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (flash > 0) { ctx.globalAlpha = flash * 0.4; ctx.fillStyle = rgb(sky.sun); ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+
+  // ----- field (rotating) -----
+  const sx = shake ? (Math.random() - 0.5) * 14 * shake : 0;
+  const sy = shake ? (Math.random() - 0.5) * 14 * shake : 0;
+  ctx.translate(W / 2 + sx, H / 2 + sy);
+  ctx.rotate(rot);
+  const S = R * (1 + (calm() ? 0 : pulse * 0.03));
+  ctx.scale(S, S);
+  ctx.lineJoin = 'round';
+
+  // alternating sky sectors
+  const far = spawnR();
+  ctx.fillStyle = rgb(sky.wall, 0.05);
+  for (let i = 0; i < N; i += 2) {
+    const a = polyPoint(i, far), b = polyPoint(i + 1, far);
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.closePath(); ctx.fill();
+  }
+
+  // walls: solid bands; at night they glow
+  if (sky.night > 0.5) { ctx.shadowColor = rgb(sky.wall, 0.8); ctx.shadowBlur = 14; }
+  ctx.fillStyle = rgb(sky.wall, 0.94);
+  for (const w of walls) {
+    const r0 = Math.max(w.d, CENTER), r1 = w.d + w.t;
+    if (r1 <= CENTER) continue;
+    ctx.beginPath();
+    for (let i = 0; i < N; i++) {
+      if (!((w.mask >> i) & 1)) continue;
+      const a = polyPoint(i, r0), b = polyPoint(i + 1, r0), c = polyPoint(i + 1, r1), d = polyPoint(i, r1);
+      ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.closePath();
+    }
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // flare warning: a dashed outline of the coming flare, gap and all
+  if (bloomQueue.length && state === 'play') {
+    const blink = calm() ? 0.9 : 0.45 + 0.55 * Math.abs(Math.sin(performance.now() / 90));
+    ctx.strokeStyle = rgb(sky.sun, blink); ctx.lineWidth = 3 / S;
+    ctx.setLineDash([0.02, 0.015]);
+    const rr = PR + 0.04;
+    for (let i = 0; i < N; i++) {
+      if (!((teleMask >> i) & 1)) continue;
+      const a = polyPoint(i, rr), b = polyPoint(i + 1, rr);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  // the sun (a moon by night)
+  const cr = CENTER * (1 + (calm() ? 0 : pulse * 0.1) + morph * 0.7);
+  ctx.shadowColor = rgb(sky.sun, 0.9); ctx.shadowBlur = 30;
+  ctx.fillStyle = rgb(sky.sun);
+  ctx.beginPath();
+  for (let i = 0; i <= N; i++) { const [x, y] = polyPoint(i, cr); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // charge ring on the orbit
+  if (inRun() || state === 'dead') {
+    const rr = PR + 0.045;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = rgb(sky.ink, 0.15); ctx.lineWidth = 2 / S;
+    ctx.beginPath(); ctx.arc(0, 0, rr, 0, TAU); ctx.stroke();
+    if (charge > 0) {
+      const full = charge >= 1;
+      ctx.strokeStyle = rgb(sky.sun, full ? (calm() ? 1 : 0.75 + 0.25 * Math.sin(performance.now() / 120)) : 0.95);
+      ctx.lineWidth = (full ? 5 : 3.5) / S;
+      if (full) { ctx.shadowColor = rgb(sky.sun); ctx.shadowBlur = 14; }
+      ctx.beginPath(); ctx.arc(0, 0, rr, pa - charge * Math.PI, pa + charge * Math.PI); ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    ctx.lineCap = 'butt';
+
+    // player
+    const dead = state === 'dead';
+    const px = Math.cos(pa) * PR, py = Math.sin(pa) * PR, sz = 0.03;
+    ctx.save();
+    ctx.translate(px, py); ctx.rotate(pa);
+    if (shieldT > 0) {
+      ctx.strokeStyle = rgb(sky.sun, shieldT); ctx.lineWidth = 2.5 / S;
+      ctx.beginPath(); ctx.arc(0, 0, sz * 1.8, 0, TAU); ctx.stroke();
+    }
+    ctx.fillStyle = dead ? rgb(sky.sun) : rgb(sky.ink);
+    ctx.beginPath();
+    ctx.moveTo(sz, 0); ctx.lineTo(-sz * 0.6, sz * 0.75); ctx.lineTo(-sz * 0.6, -sz * 0.75); ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // sparks
+  ctx.fillStyle = rgb(sky.sun);
+  for (const p of particles) {
+    ctx.globalAlpha = Math.min(1, p.life * 2.5);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 0.006, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  if (isOverlay()) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = rgb(sky.c1, 0.72); ctx.fillRect(0, 0, W, H); }
+  drawText(sky);
+}
+
+function drawText(sky) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  buttons = [];
+  const ink = rgb(sky.ink), soft = rgb(sky.ink, 0.7);
+  const pad = Math.max(16, W * 0.03);
+  const hud = Math.max(14, Math.min(22, W * 0.03));
+  const big = Math.max(34, Math.min(92, W * 0.1));
+  const small = Math.max(12, Math.min(17, W * 0.026));
+  const touch = matchMedia('(pointer: coarse)').matches;
+  ctx.fillStyle = ink;
+
+  pauseRect = null;
+  if (inRun() || state === 'dead') {
+    ctx.textBaseline = 'top';
+    ctx.font = `400 ${hud * 0.6}px ${FONT}`;
+    ctx.fillStyle = soft;
+    ctx.textAlign = 'left'; ctx.fillText('TIME', pad, pad);
+    ctx.textAlign = 'right'; ctx.fillText(`BEST · ${D().name}`, W - pad, pad);
+    ctx.fillStyle = ink;
+    ctx.font = `700 ${hud * 1.4}px ${FONT}`;
+    ctx.textAlign = 'left'; ctx.fillText(t.toFixed(2), pad, pad + hud * 0.85);
+    ctx.textAlign = 'right'; ctx.fillText(best.toFixed(2), W - pad, pad + hud * 0.85);
+    if (state === 'play') {
+      ctx.font = `400 ${hud * 0.6}px ${FONT}`; ctx.textAlign = 'left'; ctx.fillStyle = soft;
+      ctx.fillText(STAGES[stageIdx].name, pad, pad + hud * 2.6);
+      ctx.fillStyle = ink;
+    }
+  }
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+  if (state === 'play') {
+    if (banner) {
+      ctx.globalAlpha = Math.min(1, banner.life * 2);
+      ctx.font = `900 ${hud * 1.8}px ${FONT}`;
+      ctx.fillText(banner.text, W / 2, H * 0.13 + hud);
+      ctx.globalAlpha = 1;
+    }
+    // pause button, top centre
+    const pr = 22, pcx = W / 2, pcy = pad + pr;
+    pauseRect = { x: pcx - pr - 6, y: pcy - pr - 6, w: pr * 2 + 12, h: pr * 2 + 12 };
+    ctx.fillStyle = rgb(sky.ink, 0.12);
+    ctx.beginPath(); ctx.arc(pcx, pcy, pr, 0, TAU); ctx.fill();
+    ctx.fillStyle = ink;
+    ctx.fillRect(pcx - 7, pcy - 8, 4.5, 16); ctx.fillRect(pcx + 2.5, pcy - 8, 4.5, 16);
+    if (countdown > 0) {
+      ctx.font = `900 ${big * 1.1}px ${FONT}`;
+      ctx.fillText(String(Math.ceil(countdown / 0.5)), W / 2, H * 0.33);
+    }
+    if (tipNow) drawTip(sky, pad, small);
+    else if (readyFlash > 0) {
+      ctx.globalAlpha = Math.min(1, readyFlash * 2);
+      ctx.font = `700 ${small}px ${FONT}`;
+      ctx.fillText('SHIELD READY', W / 2, H - pad - small * 1.5);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  if (state === 'title') {
+    ctx.font = `900 ${big}px ${FONT}`;
+    ctx.fillText('DUSKWARD', W / 2, H * 0.17);
+    ctx.font = `400 ${small * 1.05}px ${FONT}`; ctx.fillStyle = soft;
+    ctx.fillText('Outlast the day.', W / 2, H * 0.17 + big * 0.75);
+    if (best > 0) ctx.fillText(`Your best on ${D().name.toLowerCase()}: ${best.toFixed(2)} s`, W / 2, H * 0.17 + big * 0.75 + small * 1.8);
+    ctx.fillStyle = ink;
+    diffRow(sky, H * 0.64, small);
+    ctx.font = `400 ${small * 0.9}px ${FONT}`; ctx.fillStyle = soft;
+    const lines = [
+      touch ? 'Hold either side of the screen to orbit the sun' : 'Hold ← → or A / D to orbit the sun',
+      'Brush past walls to charge a shield that saves you once',
+      touch ? 'Tap a difficulty, then tap anywhere to start' : '1 2 3 difficulty · H how to play · S settings',
+    ];
+    lines.forEach((l, i) => ctx.fillText(l, W / 2, H * 0.74 + i * small * 1.6));
+    ctx.fillStyle = ink;
+    if (Math.floor(performance.now() / 550) % 2 === 0 || calm()) {
+      ctx.font = `700 ${small * 1.1}px ${FONT}`;
+      ctx.fillText(touch ? 'TAP TO START' : 'PRESS SPACE TO START', W / 2, H * 0.74 + small * 5.6);
+    }
+  }
+
+  if (inMenu()) {
+    const fs = small * 0.78, y = H - pad - fs * 1.2, gap = Math.min(W * 0.31, 160);
+    button(sky, 'LEADERBOARD', W / 2 - gap, y, fs, false, openBoard);
+    button(sky, 'HOW TO PLAY', W / 2, y, fs, false, openHowTo);
+    button(sky, 'SETTINGS', W / 2 + gap, y, fs, false, openSettings);
+    ctx.fillStyle = ink;
+  }
+
+  if (state === 'board') drawBoard(sky, pad, small, touch);
+
+  if (state === 'dead') {
+    const topY = H * 0.2;
+    ctx.font = `900 ${big * 0.62}px ${FONT}`;
+    ctx.fillText(`${t.toFixed(2)} s`, W / 2, topY);
+    ctx.font = `700 ${small}px ${FONT}`;
+    const diffBest = newBest ? (prevBest > 0 ? `New personal best, up ${(t - prevBest).toFixed(2)} s` : 'New personal best')
+                             : `${(best - t).toFixed(2)} s short of your best`;
+    ctx.fillText(diffBest, W / 2, topY + big * 0.5);
+    drawStats(sky, topY + big * 0.5 + small * 1.6, small, pad);
+    if (lbStatus) { ctx.font = `400 ${small * 0.95}px ${FONT}`; ctx.fillStyle = soft; ctx.fillText(lbStatus, W / 2, H * 0.585); ctx.fillStyle = ink; }
+    if (deadTimer <= 0) {
+      diffRow(sky, H * 0.66, small);
+      ctx.font = `700 ${small * 1.1}px ${FONT}`;
+      ctx.fillText(touch ? 'TAP TO GO AGAIN' : 'PRESS SPACE TO GO AGAIN', W / 2, H * 0.66 + small * 3.6);
+    }
+  }
+}
+
+function drawBoard(sky, pad, small, touch) {
+  const ink = rgb(sky.ink), soft = rgb(sky.ink, 0.7);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const titleY = pad + small * 2;
+  ctx.fillStyle = ink; ctx.font = `900 ${small * 1.7}px ${FONT}`;
+  ctx.fillText('LEADERBOARD', W / 2, titleY);
+  diffRow(sky, titleY + small * 3.2, small);
+
+  const top = titleY + small * 6, rowH = small * 2.3;
+  const colW = Math.min(W - pad * 2, 440), x0 = (W - colW) / 2;
+  const maxRows = Math.max(3, Math.min(12, Math.floor((H - top - pad - small * 5) / rowH)));
+  const data = boards[D().id];
+  ctx.font = `400 ${small}px ${FONT}`;
+  if (!lbReady) { ctx.fillStyle = soft; wrap('The online leaderboard isn’t connected yet. Your name is saved and will be used once it is.', W / 2, top + rowH, colW, small * 1.5); }
+  else if (data === undefined || data === 'loading') { ctx.fillStyle = soft; ctx.fillText('Loading…', W / 2, top + rowH); }
+  else if (data === 'error') { ctx.fillStyle = soft; wrap('Couldn’t load the leaderboard. Check your connection.', W / 2, top + rowH, colW, small * 1.5); }
+  else {
+    const rows = data.filter(r => !reported.has(r.id)).slice(0, maxRows);
+    if (!rows.length) { ctx.fillStyle = soft; ctx.fillText(`No ${D().name.toLowerCase()} times yet. Be the first.`, W / 2, top + rowH); }
+    rows.forEach((r, i) => {
+      const y = top + i * rowH, me = playerName && r.name === playerName, armed = reportArm === r.id;
+      buttons.push({ x: x0, y: y - rowH / 2, w: colW, h: rowH, act: () => { if (reportArm === r.id) reportName(r.id); else reportArm = r.id; } });
+      if (armed) { ctx.fillStyle = rgb(sky.sun, 0.35); ctx.fillRect(x0 - 8, y - rowH / 2 + 2, colW + 16, rowH - 4); }
+      ctx.fillStyle = me || i === 0 ? ink : soft;
+      ctx.font = `${me || i === 0 ? 700 : 400} ${small * 1.02}px ${FONT}`;
+      ctx.textAlign = 'left'; ctx.fillText(`${i + 1}`, x0, y);
+      ctx.fillText(armed ? 'Tap again to report' : r.name, x0 + small * 2.6, y);
+      ctx.textAlign = 'right'; ctx.fillText(`${Number(r.time).toFixed(2)} s`, x0 + colW, y);
+      ctx.strokeStyle = rgb(sky.ink, 0.15); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x0, y + rowH / 2); ctx.lineTo(x0 + colW, y + rowH / 2); ctx.stroke();
+    });
+    ctx.textAlign = 'center';
+  }
+  ctx.fillStyle = soft; ctx.font = `400 ${small * 0.82}px ${FONT}`;
+  ctx.fillText('Tap a name twice to report it', W / 2, H - pad - small * 3.2);
+  ctx.fillText(touch ? 'Tap anywhere else to go back' : '← → switch difficulty · Space to go back', W / 2, H - pad - small * 1.4);
+  ctx.fillStyle = ink;
+}
+
+function drawStats(sky, y, small, pad) {
+  const items = [
+    ['NEAR MISSES', String(run.grazes)],
+    ['SHIELDS USED', String(run.shields)],
+    ['FLARES SURVIVED', String(run.flares)],
+    ['REACHED', STAGES[stageIdx].name],
+  ];
+  const cw = Math.min(W - pad * 2, 420), gap = 8, tw = (cw - gap) / 2, th = small * 3.6;
+  const x0 = (W - cw) / 2;
+  items.forEach(([label, value], i) => {
+    const x = x0 + (i % 2) * (tw + gap), yy = y + Math.floor(i / 2) * (th + gap);
+    ctx.fillStyle = rgb(sky.c0, 0.5);
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, yy, tw, th, 12) : ctx.rect(x, yy, tw, th); ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = rgb(sky.ink, 0.7); ctx.font = `400 ${small * 0.7}px ${FONT}`;
+    ctx.fillText(label, x + tw / 2, yy + th * 0.32);
+    ctx.fillStyle = rgb(sky.ink); ctx.font = `900 ${small * 1.25}px ${FONT}`;
+    ctx.fillText(value, x + tw / 2, yy + th * 0.66);
+  });
+  ctx.fillStyle = rgb(sky.ink);
+}
+
+function drawTip(sky, pad, small) {
+  const a = calm() ? 1 : Math.min(1, tipNow.age * 6);
+  ctx.globalAlpha = a * 0.45; ctx.fillStyle = rgb(sky.c1); ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+  const fs = Math.max(14, Math.min(18, small * 1.1)), maxW = Math.min(W - pad * 2, 440) - fs * 2.6;
+  ctx.font = `700 ${fs}px ${FONT}`;
+  const lines = []; let line = '';
+  for (const w of tipNow.text.split(' ')) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; } else line = test;
+  }
+  if (line) lines.push(line);
+  const lh = fs * 1.5, bw = Math.min(W - pad * 2, 440), bh = lines.length * lh + fs * 4.6;
+  const bx = (W - bw) / 2, by = H * 0.62 - bh / 2;
+  ctx.globalAlpha = a;
+  ctx.fillStyle = rgb(sky.ink, 0.9);
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, bw, bh, 16) : ctx.rect(bx, by, bw, bh); ctx.fill();
+  ctx.fillStyle = rgb(sky.c0);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  lines.forEach((l, i) => ctx.fillText(l, W / 2, by + fs * 1.1 + lh * (i + 0.5)));
+  if (tipNow.age >= TIP_LOCK) {
+    ctx.font = `400 ${fs * 0.75}px ${FONT}`;
+    ctx.fillStyle = rgb(sky.c0, 0.75);
+    ctx.fillText(isTouch() ? 'TAP TO CONTINUE' : 'PRESS SPACE TO CONTINUE', W / 2, by + bh - fs * 1.4);
+  }
+  ctx.globalAlpha = 1; ctx.fillStyle = rgb(sky.ink);
+}
+
+function wrap(text, cx, y, maxW, lh) {
+  let line = '', yy = y;
+  for (const w of text.split(' ')) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && line) { ctx.fillText(line, cx, yy); line = w; yy += lh; } else line = test;
+  }
+  if (line) ctx.fillText(line, cx, yy);
+}
+
+function diffRow(sky, y, small) {
+  const gapX = Math.min(W * 0.28, 150);
+  DIFFS.forEach((d, i) => button(sky, d.name, W / 2 + (i - 1) * gapX, y, small * 0.95, i === diffIdx, () => setDiff(i)));
+  ctx.fillStyle = rgb(sky.ink);
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  update(dt); draw();
+  requestAnimationFrame(frame);
+}
+resize();
+cv.focus({ preventScroll: true });
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
